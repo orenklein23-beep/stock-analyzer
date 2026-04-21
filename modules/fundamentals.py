@@ -15,17 +15,23 @@ def show(ticker):
         st.subheader("Key Stats")
         col1, col2, col3, col4 = st.columns(4)
 
-        price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
+price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
+        if isinstance(price, float):
+            price = round(price, 2)
         market_cap = fast.get("marketCap", 0)
 
         col1.metric("Current Price", f"${price}")
         col2.metric("Market Cap", f"${market_cap:,.0f}")
 
-        # These still come from info but wrapped safely
         try:
-            info = stock.get_info()
-            col3.metric("P/E Ratio", info.get("trailingPE", "N/A"))
-            col4.metric("Profit Margin", f"{round(info.get('profitMargins', 0) * 100, 2)}%")
+            info = stock.info
+            pe = info.get("trailingPE", "N/A")
+            if isinstance(pe, float):
+                pe = round(pe, 2)
+            margin = info.get("profitMargins", None)
+            margin_str = f"{round(margin * 100, 2)}%" if margin else "N/A"
+            col3.metric("P/E Ratio", pe)
+            col4.metric("Profit Margin", margin_str)
         except:
             col3.metric("P/E Ratio", "N/A")
             col4.metric("Profit Margin", "N/A")
