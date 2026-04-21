@@ -5,20 +5,34 @@ import plotly.graph_objects as go
 def show(ticker):
     st.header(f"📊 Fundamentals — {ticker}")
 
-    stock = yf.Ticker(ticker)
-    info = stock.info
+    try:
+        stock = yf.Ticker(ticker)
+        
+        # Rate limit workaround — use fast_info instead of info
+        fast = stock.fast_info
 
-    if not info or (info.get("currentPrice") is None and info.get("regularMarketPrice") is None):
-        st.error(f"Could not find data for '{ticker}'. Check the ticker and try again.")
+        # --- Key Stats ---
+        st.subheader("Key Stats")
+        col1, col2, col3, col4 = st.columns(4)
+
+        price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
+        market_cap = fast.get("marketCap", 0)
+
+        col1.metric("Current Price", f"${price}")
+        col2.metric("Market Cap", f"${market_cap:,.0f}")
+
+        # These still come from info but wrapped safely
+        try:
+            info = stock.get_info()
+            col3.metric("P/E Ratio", info.get("trailingPE", "N/A"))
+            col4.metric("Profit Margin", f"{round(info.get('profitMargins', 0) * 100, 2)}%")
+        except:
+            col3.metric("P/E Ratio", "N/A")
+            col4.metric("Profit Margin", "N/A")
+
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
         return
-
-    # --- Key Stats ---
-    st.subheader("Key Stats")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Current Price", f"${info.get('currentPrice', info.get('regularMarketPrice', 'N/A'))}")
-    col2.metric("P/E Ratio", info.get("trailingPE", "N/A"))
-    col3.metric("Market Cap", f"${info.get('marketCap', 0):,.0f}")
-    col4.metric("Profit Margin", f"{round(info.get('profitMargins', 0) * 100, 2)}%")
 
     st.divider()
 
@@ -31,8 +45,18 @@ def show(ticker):
             net_income = financials["Net Income"].dropna()
 
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=revenue.index.astype(str), y=revenue.values, name="Revenue", marker_color="#4A90D9"))
-            fig.add_trace(go.Bar(x=net_income.index.astype(str), y=net_income.values, name="Net Income", marker_color="#27AE60"))
+            fig.add_trace(go.Bar(
+                x=revenue.index.astype(str),
+                y=revenue.values,
+                name="Revenue",
+                marker_color="#4A90D9"
+            ))
+            fig.add_trace(go.Bar(
+                x=net_income.index.astype(str),
+                y=net_income.values,
+                name="Net Income",
+                marker_color="#27AE60"
+            ))
             fig.update_layout(barmode="group", xaxis_title="Year", yaxis_title="USD", height=400)
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -53,9 +77,3 @@ def show(ticker):
             col2.metric("Cash (latest)", f"${balance['Cash And Cash Equivalents'].iloc[0]:,.0f}")
     except Exception as e:
         st.warning(f"Could not load balance sheet: {e}")
-
-    st.divider()
-
-    # --- Raw Data ---
-    with st.expander("🔍 See all raw data"):
-        st.json(info)
