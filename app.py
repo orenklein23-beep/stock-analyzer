@@ -12,8 +12,20 @@ st.title("📈 Stock Analyzer")
 st.caption("Fundamental analysis through a behavioral lens")
 
 # --- Ticker Input ---
-ticker = st.text_input("Enter a ticker symbol", value="AAPL").upper().strip()
+ticker = st.text_input("Enter any ticker symbol", value="AAPL").upper().strip()
 
+# --- Sidebar Navigation ---
+st.sidebar.title("Modules")
+module = st.sidebar.radio("Go to:", [
+    "📊 Fundamentals",
+    "📰 News Sentiment",
+    "📄 PDF Export"
+])
+
+# --- Load Module ---
 if ticker:
-    st.success(f"Analyzing: {ticker}")
-    st.info("Modules coming soon...")
+    if module == "📊 Fundamentals":
+        from modules import fundamentals
+        fundamentals.show(ticker)
+    else:
+        st.info(f"{module} coming soon...")
