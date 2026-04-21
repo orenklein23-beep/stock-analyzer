@@ -3,23 +3,19 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 def show(ticker):
-    st.header(f"📊 Fundamentals — {ticker}")
+    st.header(f"Fundamentals — {ticker}")
 
     try:
         stock = yf.Ticker(ticker)
-        
-        # Rate limit workaround — use fast_info instead of info
         fast = stock.fast_info
 
-        # --- Key Stats ---
-        st.subheader("Key Stats")
-        col1, col2, col3, col4 = st.columns(4)
-
-price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
+        price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
         if isinstance(price, float):
             price = round(price, 2)
         market_cap = fast.get("marketCap", 0)
 
+        st.subheader("Key Stats")
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Current Price", f"${price}")
         col2.metric("Market Cap", f"${market_cap:,.0f}")
 
@@ -32,7 +28,7 @@ price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
             margin_str = f"{round(margin * 100, 2)}%" if margin else "N/A"
             col3.metric("P/E Ratio", pe)
             col4.metric("Profit Margin", margin_str)
-        except:
+        except Exception:
             col3.metric("P/E Ratio", "N/A")
             col4.metric("Profit Margin", "N/A")
 
@@ -42,14 +38,12 @@ price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
 
     st.divider()
 
-    # --- Revenue & Net Income Chart ---
     st.subheader("Revenue & Net Income (Annual)")
     try:
         financials = stock.financials.T
         if "Total Revenue" in financials.columns and "Net Income" in financials.columns:
             revenue = financials["Total Revenue"].dropna()
             net_income = financials["Net Income"].dropna()
-
             fig = go.Figure()
             fig.add_trace(go.Bar(
                 x=revenue.index.astype(str),
@@ -72,7 +66,6 @@ price = fast.get("lastPrice") or fast.get("regularMarketPrice", "N/A")
 
     st.divider()
 
-    # --- Balance Sheet ---
     st.subheader("Balance Sheet Snapshot")
     try:
         balance = stock.balance_sheet.T
