@@ -27,7 +27,7 @@ def show(ticker):
 
     with st.spinner("Fetching data..."):
         stock = yf.Ticker(ticker)
-        f     = stock.fast_info
+        f = stock.fast_info
 
         try: fin = stock.financials.T.sort_index()
         except: fin = pd.DataFrame()
@@ -38,18 +38,17 @@ def show(ticker):
         try: cf = stock.cashflow.T.sort_index()
         except: cf = pd.DataFrame()
 
-        try: hist = stock.history(period="1y")
-        except: hist = pd.DataFrame()
+        try:
+            h52 = stock.history(period="1y")
+            w52h = float(h52["High"].max()) if not h52.empty else 0
+            w52l = float(h52["Low"].min())  if not h52.empty else 0
+        except:
+            w52h, w52l = 0, 0
 
-        try: hist5 = stock.history(period="5y")
-        except: hist5 = pd.DataFrame()
-
-    # ── DERIVE EVERYTHING FROM STATEMENTS ─────────────────────
+    # ── CORE VALUES ────────────────────────────────────────────
     price  = float(f.get("lastPrice") or f.get("regularMarketPrice") or 0)
     prev   = float(f.get("previousClose") or price)
     mcap   = float(f.get("marketCap") or 0)
-    w52h   = float(f.get("fiftyTwoWeekHigh") or 0)
-    w52l   = float(f.get("fiftyTwoWeekLow") or 0)
     shares = float(f.get("shares") or f.get("impliedShares") or 0)
 
     rev     = safe(fin, "Total Revenue")
@@ -57,28 +56,24 @@ def show(ticker):
     net_inc = safe(fin, "Net Income")
     op_inc  = safe(fin, "Operating Income")
     ebitda  = safe(fin, "EBITDA") or safe(fin, "Normalized EBITDA")
-
-    gross_m = round(gross_p/rev*100,1) if gross_p and rev else None
-    net_m   = round(net_inc/rev*100,1) if net_inc and rev else None
-    op_m    = round(op_inc/rev*100,1)  if op_inc  and rev else None
-
     debt    = safe(bs, "Total Debt")
     cash    = safe(bs, "Cash And Cash Equivalents") or safe(bs, "Cash Cash Equivalents And Short Term Investments")
     equity  = safe(bs, "Stockholders Equity") or safe(bs, "Common Stock Equity")
     assets  = safe(bs, "Total Assets")
-    net_debt= (debt - cash) if debt and cash else None
-
     op_cf   = safe(cf, "Operating Cash Flow")
     fcf     = safe(cf, "Free Cash Flow")
     capex   = safe(cf, "Capital Expenditure")
 
-    eps     = net_inc/shares if net_inc and shares else None
-    pe      = price/(eps) if eps and eps > 0 else None
-    pb      = (mcap/equity) if equity and equity > 0 else None
-    ps      = (mcap/rev) if rev and rev > 0 else None
-    roe     = (net_inc/equity*100) if net_inc and equity and equity > 0 else None
-    roa     = (net_inc/assets*100) if net_inc and assets else None
-    de      = (debt/equity) if debt and equity and equity > 0 else None
+    net_debt = (debt - cash) if debt and cash else None
+    gross_m  = round(gross_p/rev*100,1) if gross_p and rev else None
+    net_m    = round(net_inc/rev*100,1) if net_inc and rev else None
+    op_m     = round(op_inc/rev*100,1)  if op_inc  and rev else None
+    eps      = net_inc/shares           if net_inc and shares else None
+    pe       = price/eps                if eps and eps > 0 else None
+    pb       = mcap/equity              if equity and equity > 0 else None
+    ps       = mcap/rev                 if rev and rev > 0 else None
+    roe      = net_inc/equity*100       if net_inc and equity and equity > 0 else None
+    de       = debt/equity              if debt and equity and equity > 0 else None
 
     chg  = round(price - prev, 2)
     chgp = round((chg/prev)*100, 2) if prev else 0
@@ -97,28 +92,30 @@ def show(ticker):
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 12 METRIC CARDS ───────────────────────────────────────
+    # ── 20 METRIC CARDS ───────────────────────────────────────
     cards = [
-        ("Market Cap",      fmt(mcap)),
-        ("Revenue (TTM)",   fmt(rev)),
-        ("Gross Profit",    fmt(gross_p)),
-        ("Net Income",      fmt(net_inc)),
-        ("EPS",             f"${round(eps,2)}" if eps else "N/A"),
-        ("P/E Ratio",       round(pe,1) if pe else "N/A"),
-        ("P/B Ratio",       round(pb,2) if pb else "N/A"),
-        ("P/S Ratio",       round(ps,2) if ps else "N/A"),
-        ("Gross Margin",    f"{gross_m}%" if gross_m else "N/A"),
-        ("Net Margin",      f"{net_m}%" if net_m else "N/A"),
-        ("Return on Equity",f"{round(roe,1)}%" if roe else "N/A"),
-        ("Debt/Equity",     round(de,2) if de else "N/A"),
-        ("Total Debt",      fmt(debt)),
-        ("Cash",            fmt(cash)),
-        ("Net Debt",        fmt(net_debt)),
-        ("Free Cash Flow",  fmt(fcf)),
-        ("52W High",        f"${round(w52h,2)}" if w52h else "N/A"),
-        ("52W Low",         f"${round(w52l,2)}" if w52l else "N/A"),
-        ("Op Cash Flow",    fmt(op_cf)),
-        ("EBITDA",          fmt(ebitda)),
+        ("Market Cap",       fmt(mcap)),
+        ("Revenue (TTM)",    fmt(rev)),
+        ("Gross Profit",     fmt(gross_p)),
+        ("Net Income",       fmt(net_inc)),
+        ("EPS",              f"${round(eps,2)}"   if eps   else "N/A"),
+        ("P/E Ratio",        round(pe,1)           if pe    else "N/A"),
+        ("P/B Ratio",        round(pb,2)           if pb    else "N/A"),
+        ("P/S Ratio",        round(ps,2)           if ps    else "N/A"),
+        ("Gross Margin",     f"{gross_m}%"         if gross_m else "N/A"),
+        ("Net Margin",       f"{net_m}%"           if net_m   else "N/A"),
+        ("Op Margin",        f"{op_m}%"            if op_m    else "N/A"),
+        ("Return on Equity", f"{round(roe,1)}%"    if roe     else "N/A"),
+        ("Debt/Equity",      round(de,2)           if de    else "N/A"),
+        ("Total Debt",       fmt(debt)),
+        ("Cash",             fmt(cash)),
+        ("Net Debt",         fmt(net_debt)),
+        ("Free Cash Flow",   fmt(fcf)),
+        ("Op Cash Flow",     fmt(op_cf)),
+        ("EBITDA",           fmt(ebitda)),
+        ("52W High",         f"${round(w52h,2)}"  if w52h  else "N/A"),
+        ("52W Low",          f"${round(w52l,2)}"  if w52l  else "N/A"),
+        ("CapEx",            fmt(capex)),
     ]
 
     cols = st.columns(4)
@@ -167,18 +164,19 @@ def show(ticker):
     st.subheader("💰 Revenue, Gross Profit & Net Income")
     if not fin.empty:
         try:
-            fin.index = fin.index.astype(str).str[:10]
+            f2 = fin.copy()
+            f2.index = f2.index.astype(str).str[:10]
             fig2 = make_subplots(specs=[[{"secondary_y":True}]])
             for col_name, color, sy in [
                 ("Total Revenue","#4A90D9",False),
                 ("Gross Profit","#9B59B6",False),
             ]:
-                if col_name in fin.columns:
-                    fig2.add_trace(go.Bar(x=fin.index, y=fin[col_name],
+                if col_name in f2.columns:
+                    fig2.add_trace(go.Bar(x=f2.index, y=f2[col_name],
                         name=col_name, marker_color=color, opacity=0.9),
                         secondary_y=sy)
-            if "Net Income" in fin.columns:
-                fig2.add_trace(go.Scatter(x=fin.index, y=fin["Net Income"],
+            if "Net Income" in f2.columns:
+                fig2.add_trace(go.Scatter(x=f2.index, y=f2["Net Income"],
                     name="Net Income", line=dict(color="#27AE60",width=3),
                     mode="lines+markers", marker=dict(size=9)),
                     secondary_y=True)
@@ -199,21 +197,19 @@ def show(ticker):
     st.subheader("📊 Margin Trends")
     if not fin.empty and "Total Revenue" in fin.columns:
         try:
-            fin.index = fin.index.astype(str).str[:10]
-            m = pd.DataFrame(index=fin.index)
-            if "Gross Profit" in fin.columns:
-                m["Gross Margin %"] = (fin["Gross Profit"]/fin["Total Revenue"]*100).round(1)
-            if "Net Income" in fin.columns:
-                m["Net Margin %"] = (fin["Net Income"]/fin["Total Revenue"]*100).round(1)
-            if "Operating Income" in fin.columns:
-                m["Op Margin %"] = (fin["Operating Income"]/fin["Total Revenue"]*100).round(1)
-            fig3 = go.Figure()
+            f3 = fin.copy()
+            f3.index = f3.index.astype(str).str[:10]
+            m = pd.DataFrame(index=f3.index)
+            if "Gross Profit"     in f3.columns: m["Gross Margin %"] = (f3["Gross Profit"]    /f3["Total Revenue"]*100).round(1)
+            if "Net Income"       in f3.columns: m["Net Margin %"]   = (f3["Net Income"]      /f3["Total Revenue"]*100).round(1)
+            if "Operating Income" in f3.columns: m["Op Margin %"]    = (f3["Operating Income"]/f3["Total Revenue"]*100).round(1)
             colors = ["#4A90D9","#27AE60","#FFA500"]
-            for i, col_name in enumerate(m.columns):
-                fig3.add_trace(go.Scatter(x=m.index, y=m[col_name],
-                    name=col_name, line=dict(color=colors[i],width=3),
-                    mode="lines+markers", fill="tozeroy",
-                    fillcolor=f"rgba({','.join(str(int(colors[i].lstrip('#')[j:j+2],16)) for j in (0,2,4))},0.1)"))
+            fig3 = go.Figure()
+            for i, c in enumerate(m.columns):
+                r,g,b = tuple(int(colors[i].lstrip("#")[j:j+2],16) for j in (0,2,4))
+                fig3.add_trace(go.Scatter(x=m.index, y=m[c], name=c,
+                    line=dict(color=colors[i],width=3), mode="lines+markers",
+                    fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.1)"))
             fig3.update_layout(height=350,
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
                 font_color="white", yaxis_title="Margin %")
@@ -229,18 +225,18 @@ def show(ticker):
     st.subheader("🏦 Balance Sheet")
     if not bs.empty:
         try:
-            bs.index = bs.index.astype(str).str[:10]
+            b2 = bs.copy()
+            b2.index = b2.index.astype(str).str[:10]
             fig4 = go.Figure()
-            pairs = [
+            for col_name, color in [
                 ("Total Assets","#4A90D9"),
                 ("Total Liabilities Net Minority Interest","#E74C3C"),
                 ("Common Stock Equity","#27AE60"),
                 ("Total Debt","#F39C12"),
-            ]
-            for col_name, color in pairs:
-                if col_name in bs.columns:
-                    fig4.add_trace(go.Bar(x=bs.index, y=bs[col_name],
-                        name=col_name.replace("Net Minority Interest",""),
+            ]:
+                if col_name in b2.columns:
+                    fig4.add_trace(go.Bar(x=b2.index, y=b2[col_name],
+                        name=col_name.replace(" Net Minority Interest",""),
                         marker_color=color))
             fig4.update_layout(barmode="group", height=400,
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
@@ -257,16 +253,16 @@ def show(ticker):
     st.subheader("💵 Cash Flow")
     if not cf.empty:
         try:
-            cf.index = cf.index.astype(str).str[:10]
+            c2 = cf.copy()
+            c2.index = c2.index.astype(str).str[:10]
             fig5 = go.Figure()
-            pairs = [
+            for col_name, color in [
                 ("Operating Cash Flow","#27AE60"),
                 ("Free Cash Flow","#4A90D9"),
                 ("Capital Expenditure","#E74C3C"),
-            ]
-            for col_name, color in pairs:
-                if col_name in cf.columns:
-                    fig5.add_trace(go.Bar(x=cf.index, y=cf[col_name],
+            ]:
+                if col_name in c2.columns:
+                    fig5.add_trace(go.Bar(x=c2.index, y=c2[col_name],
                         name=col_name, marker_color=color))
             fig5.update_layout(barmode="group", height=380,
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
@@ -288,7 +284,7 @@ def show(ticker):
                 mode="gauge+number",
                 value=round(pos,1),
                 title={"text":f"Low ${round(w52l,2)}  ←  current  →  High ${round(w52h,2)}",
-                       "font":{"color":"white"}},
+                       "font":{"color":"white","size":14}},
                 gauge={
                     "axis":{"range":[0,100],"tickcolor":"white"},
                     "bar":{"color":"#4A90D9"},
@@ -305,30 +301,32 @@ def show(ticker):
             st.plotly_chart(fig6, use_container_width=True)
         except Exception as e:
             st.warning(f"Gauge: {e}")
+    else:
+        st.info("52-week data not available.")
 
     st.divider()
 
-    # ── ANALYST TARGETS from recommendations ──────────────────
-    st.subheader("🎯 Analyst Recommendations")
+    # ── QUARTERLY EARNINGS ────────────────────────────────────
+    st.subheader("📅 Quarterly Earnings")
     try:
-        rec = stock.recommendations
-        if rec is not None and not rec.empty:
-            recent = rec.tail(12)
-            fig7 = go.Figure()
-            for grade, color in [("strongBuy","#27AE60"),("buy","#4A90D9"),
-                                  ("hold","#F39C12"),("sell","#E74C3C"),
-                                  ("strongSell","#8E1A0E")]:
-                if grade in recent.columns:
-                    fig7.add_trace(go.Bar(
-                        x=recent.index.astype(str).str[:10],
-                        y=recent[grade], name=grade, marker_color=color))
-            fig7.update_layout(barmode="stack", height=320,
+        qfin = stock.quarterly_financials.T.sort_index()
+        qfin.index = qfin.index.astype(str).str[:10]
+        if not qfin.empty:
+            fig7 = make_subplots(specs=[[{"secondary_y":True}]])
+            if "Total Revenue" in qfin.columns:
+                fig7.add_trace(go.Bar(x=qfin.index, y=qfin["Total Revenue"],
+                    name="Revenue", marker_color="#4A90D9", opacity=0.9),
+                    secondary_y=False)
+            if "Net Income" in qfin.columns:
+                fig7.add_trace(go.Scatter(x=qfin.index, y=qfin["Net Income"],
+                    name="Net Income", line=dict(color="#27AE60",width=3),
+                    mode="lines+markers", marker=dict(size=9)),
+                    secondary_y=True)
+            fig7.update_layout(height=380, barmode="group",
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
                 font_color="white", legend=dict(orientation="h",y=1.1))
             fig7.update_xaxes(gridcolor="#1e1e1e")
             fig7.update_yaxes(gridcolor="#1e1e1e")
             st.plotly_chart(fig7, use_container_width=True)
-        else:
-            st.info("No analyst recommendations available.")
     except Exception as e:
-        st.warning(f"Recommendations: {e}")
+        st.warning(f"Quarterly earnings: {e}")
