@@ -38,12 +38,18 @@ def show(ticker):
         try: cf = stock.cashflow.T.sort_index()
         except: cf = pd.DataFrame()
 
+        try: qfin = stock.quarterly_financials.T.sort_index()
+        except: qfin = pd.DataFrame()
+
         try:
             h52 = stock.history(period="1y")
             w52h = float(h52["High"].max()) if not h52.empty else 0
             w52l = float(h52["Low"].min())  if not h52.empty else 0
         except:
             w52h, w52l = 0, 0
+
+        try: apt = stock.analyst_price_targets
+        except: apt = None
 
     # ── CORE VALUES ────────────────────────────────────────────
     price  = float(f.get("lastPrice") or f.get("regularMarketPrice") or 0)
@@ -64,7 +70,7 @@ def show(ticker):
     fcf     = safe(cf, "Free Cash Flow")
     capex   = safe(cf, "Capital Expenditure")
 
-    net_debt = (debt - cash) if debt and cash else None
+    net_debt = (debt - cash)        if debt and cash else None
     gross_m  = round(gross_p/rev*100,1) if gross_p and rev else None
     net_m    = round(net_inc/rev*100,1) if net_inc and rev else None
     op_m     = round(op_inc/rev*100,1)  if op_inc  and rev else None
@@ -74,10 +80,11 @@ def show(ticker):
     ps       = mcap/rev                 if rev and rev > 0 else None
     roe      = net_inc/equity*100       if net_inc and equity and equity > 0 else None
     de       = debt/equity              if debt and equity and equity > 0 else None
+    capex_d  = abs(capex)               if capex else None
 
     chg  = round(price - prev, 2)
     chgp = round((chg/prev)*100, 2) if prev else 0
-    col  = "#26a69a" if chg >= 0 else "#ef5350"
+    pcol = "#26a69a" if chg >= 0 else "#ef5350"
     arr  = "▲" if chg >= 0 else "▼"
 
     # ── PRICE BANNER ──────────────────────────────────────────
@@ -86,36 +93,38 @@ def show(ticker):
                 padding:28px 32px;border-radius:16px;margin-bottom:24px'>
         <div style='color:#888;font-size:12px;letter-spacing:3px'>{ticker.upper()}</div>
         <div style='color:#fff;font-size:56px;font-weight:800;line-height:1.1'>${round(price,2)}</div>
-        <div style='color:{col};font-size:20px;margin-top:6px'>
+        <div style='color:{pcol};font-size:20px;margin-top:6px'>
             {arr} ${abs(chg)} ({chgp}%) today
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 20 METRIC CARDS ───────────────────────────────────────
+    # ── METRIC CARDS ──────────────────────────────────────────
     cards = [
         ("Market Cap",       fmt(mcap)),
         ("Revenue (TTM)",    fmt(rev)),
         ("Gross Profit",     fmt(gross_p)),
         ("Net Income",       fmt(net_inc)),
-        ("EPS",              f"${round(eps,2)}"   if eps   else "N/A"),
-        ("P/E Ratio",        round(pe,1)           if pe    else "N/A"),
-        ("P/B Ratio",        round(pb,2)           if pb    else "N/A"),
-        ("P/S Ratio",        round(ps,2)           if ps    else "N/A"),
-        ("Gross Margin",     f"{gross_m}%"         if gross_m else "N/A"),
-        ("Net Margin",       f"{net_m}%"           if net_m   else "N/A"),
-        ("Op Margin",        f"{op_m}%"            if op_m    else "N/A"),
-        ("Return on Equity", f"{round(roe,1)}%"    if roe     else "N/A"),
-        ("Debt/Equity",      round(de,2)           if de    else "N/A"),
+        ("EPS",              f"${round(eps,2)}"  if eps    else "N/A"),
+        ("P/E Ratio",        round(pe,1)          if pe     else "N/A"),
+        ("P/B Ratio",        round(pb,2)          if pb     else "N/A"),
+        ("P/S Ratio",        round(ps,2)          if ps     else "N/A"),
+        ("Gross Margin",     f"{gross_m}%"        if gross_m else "N/A"),
+        ("Net Margin",       f"{net_m}%"          if net_m   else "N/A"),
+        ("Op Margin",        f"{op_m}%"           if op_m    else "N/A"),
+        ("Return on Equity", f"{round(roe,1)}%"   if roe     else "N/A"),
+        ("Debt/Equity",      round(de,2)          if de     else "N/A"),
         ("Total Debt",       fmt(debt)),
         ("Cash",             fmt(cash)),
         ("Net Debt",         fmt(net_debt)),
         ("Free Cash Flow",   fmt(fcf)),
         ("Op Cash Flow",     fmt(op_cf)),
         ("EBITDA",           fmt(ebitda)),
-        ("52W High",         f"${round(w52h,2)}"  if w52h  else "N/A"),
-        ("52W Low",          f"${round(w52l,2)}"  if w52l  else "N/A"),
-        ("CapEx",            fmt(capex)),
+        ("CapEx",            fmt(capex_d)),
+        ("52W High",         f"${round(w52h,2)}" if w52h else "N/A"),
+        ("52W Low",          f"${round(w52l,2)}" if w52l else "N/A"),
+        ("Total Assets",     fmt(assets)),
+        ("Equity",           fmt(equity)),
     ]
 
     cols = st.columns(4)
@@ -167,19 +176,17 @@ def show(ticker):
             f2 = fin.copy()
             f2.index = f2.index.astype(str).str[:10]
             fig2 = make_subplots(specs=[[{"secondary_y":True}]])
-            for col_name, color, sy in [
+            for cn, color, sy in [
                 ("Total Revenue","#4A90D9",False),
                 ("Gross Profit","#9B59B6",False),
             ]:
-                if col_name in f2.columns:
-                    fig2.add_trace(go.Bar(x=f2.index, y=f2[col_name],
-                        name=col_name, marker_color=color, opacity=0.9),
-                        secondary_y=sy)
+                if cn in f2.columns:
+                    fig2.add_trace(go.Bar(x=f2.index, y=f2[cn],
+                        name=cn, marker_color=color, opacity=0.9), secondary_y=sy)
             if "Net Income" in f2.columns:
                 fig2.add_trace(go.Scatter(x=f2.index, y=f2["Net Income"],
                     name="Net Income", line=dict(color="#27AE60",width=3),
-                    mode="lines+markers", marker=dict(size=9)),
-                    secondary_y=True)
+                    mode="lines+markers", marker=dict(size=9)), secondary_y=True)
             fig2.update_layout(height=400, barmode="group",
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
                 font_color="white", legend=dict(orientation="h",y=1.1))
@@ -188,8 +195,6 @@ def show(ticker):
             st.plotly_chart(fig2, use_container_width=True)
         except Exception as e:
             st.warning(f"Revenue chart: {e}")
-    else:
-        st.info("No annual financials available.")
 
     st.divider()
 
@@ -228,15 +233,15 @@ def show(ticker):
             b2 = bs.copy()
             b2.index = b2.index.astype(str).str[:10]
             fig4 = go.Figure()
-            for col_name, color in [
+            for cn, color in [
                 ("Total Assets","#4A90D9"),
                 ("Total Liabilities Net Minority Interest","#E74C3C"),
                 ("Common Stock Equity","#27AE60"),
                 ("Total Debt","#F39C12"),
             ]:
-                if col_name in b2.columns:
-                    fig4.add_trace(go.Bar(x=b2.index, y=b2[col_name],
-                        name=col_name.replace(" Net Minority Interest",""),
+                if cn in b2.columns:
+                    fig4.add_trace(go.Bar(x=b2.index, y=b2[cn],
+                        name=cn.replace(" Net Minority Interest",""),
                         marker_color=color))
             fig4.update_layout(barmode="group", height=400,
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
@@ -256,14 +261,15 @@ def show(ticker):
             c2 = cf.copy()
             c2.index = c2.index.astype(str).str[:10]
             fig5 = go.Figure()
-            for col_name, color in [
+            for cn, color in [
                 ("Operating Cash Flow","#27AE60"),
                 ("Free Cash Flow","#4A90D9"),
                 ("Capital Expenditure","#E74C3C"),
             ]:
-                if col_name in c2.columns:
-                    fig5.add_trace(go.Bar(x=c2.index, y=c2[col_name],
-                        name=col_name, marker_color=color))
+                if cn in c2.columns:
+                    vals = c2[cn].abs() if cn == "Capital Expenditure" else c2[cn]
+                    fig5.add_trace(go.Bar(x=c2.index, y=vals,
+                        name=cn, marker_color=color))
             fig5.update_layout(barmode="group", height=380,
                 paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
                 font_color="white", legend=dict(orientation="h",y=1.1))
@@ -275,12 +281,39 @@ def show(ticker):
 
     st.divider()
 
+    # ── QUARTERLY EARNINGS ─────────────────────────────────────
+    st.subheader("📅 Quarterly Revenue & Net Income")
+    if not qfin.empty:
+        try:
+            q2 = qfin.copy()
+            q2.index = q2.index.astype(str).str[:10]
+            fig6 = make_subplots(specs=[[{"secondary_y":True}]])
+            if "Total Revenue" in q2.columns:
+                fig6.add_trace(go.Bar(x=q2.index, y=q2["Total Revenue"],
+                    name="Revenue", marker_color="#4A90D9", opacity=0.9),
+                    secondary_y=False)
+            if "Net Income" in q2.columns:
+                fig6.add_trace(go.Scatter(x=q2.index, y=q2["Net Income"],
+                    name="Net Income", line=dict(color="#27AE60",width=3),
+                    mode="lines+markers", marker=dict(size=9)),
+                    secondary_y=True)
+            fig6.update_layout(height=380, barmode="group",
+                paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
+                font_color="white", legend=dict(orientation="h",y=1.1))
+            fig6.update_xaxes(gridcolor="#1e1e1e")
+            fig6.update_yaxes(gridcolor="#1e1e1e")
+            st.plotly_chart(fig6, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Quarterly chart: {e}")
+
+    st.divider()
+
     # ── 52W GAUGE ──────────────────────────────────────────────
     st.subheader("📍 52-Week Price Position")
     if w52h and w52l and price:
         try:
             pos = (price - w52l) / (w52h - w52l) * 100
-            fig6 = go.Figure(go.Indicator(
+            fig7 = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=round(pos,1),
                 title={"text":f"Low ${round(w52l,2)}  ←  current  →  High ${round(w52h,2)}",
@@ -296,37 +329,60 @@ def show(ticker):
                 },
                 number={"suffix":"%","font":{"color":"white"}}
             ))
-            fig6.update_layout(height=280,
+            fig7.update_layout(height=280,
                 paper_bgcolor="#0e1117", font_color="white")
-            st.plotly_chart(fig6, use_container_width=True)
+            st.plotly_chart(fig7, use_container_width=True)
         except Exception as e:
             st.warning(f"Gauge: {e}")
-    else:
-        st.info("52-week data not available.")
 
     st.divider()
 
-    # ── QUARTERLY EARNINGS ────────────────────────────────────
-    st.subheader("📅 Quarterly Earnings")
+    # ── ANALYST PRICE TARGETS ─────────────────────────────────
+    st.subheader("🎯 Analyst Price Targets")
     try:
-        qfin = stock.quarterly_financials.T.sort_index()
-        qfin.index = qfin.index.astype(str).str[:10]
-        if not qfin.empty:
-            fig7 = make_subplots(specs=[[{"secondary_y":True}]])
-            if "Total Revenue" in qfin.columns:
-                fig7.add_trace(go.Bar(x=qfin.index, y=qfin["Total Revenue"],
-                    name="Revenue", marker_color="#4A90D9", opacity=0.9),
-                    secondary_y=False)
-            if "Net Income" in qfin.columns:
-                fig7.add_trace(go.Scatter(x=qfin.index, y=qfin["Net Income"],
-                    name="Net Income", line=dict(color="#27AE60",width=3),
-                    mode="lines+markers", marker=dict(size=9)),
-                    secondary_y=True)
-            fig7.update_layout(height=380, barmode="group",
-                paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-                font_color="white", legend=dict(orientation="h",y=1.1))
-            fig7.update_xaxes(gridcolor="#1e1e1e")
-            fig7.update_yaxes(gridcolor="#1e1e1e")
-            st.plotly_chart(fig7, use_container_width=True)
+        if apt is not None and hasattr(apt, '__len__') and len(apt) > 0:
+            low_t    = apt.get("low")
+            mean_t   = apt.get("mean")
+            high_t   = apt.get("high")
+            median_t = apt.get("median")
+            upside   = round(((mean_t-price)/price)*100,1) if mean_t and price else None
+
+            c1,c2,c3,c4 = st.columns(4)
+            c1.metric("Target Low",    f"${round(low_t,2)}"    if low_t    else "N/A")
+            c2.metric("Target Median", f"${round(median_t,2)}" if median_t else "N/A")
+            c3.metric("Target Mean",   f"${round(mean_t,2)}"   if mean_t   else "N/A",
+                      delta=f"{upside}% upside" if upside else None)
+            c4.metric("Target High",   f"${round(high_t,2)}"   if high_t   else "N/A")
+
+            if mean_t and low_t and high_t:
+                pts = {
+                    "Label": ["52W Low","Current Price","Target Low","Target Median","Target Mean","Target High","52W High"],
+                    "Price": [w52l, price, low_t, median_t or mean_t, mean_t, high_t, w52h],
+                    "Color": ["#888","#FFA500","#E74C3C","#F39C12","#4A90D9","#27AE60","#888"]
+                }
+                fig8 = go.Figure()
+                fig8.add_trace(go.Scatter(
+                    x=pts["Label"], y=pts["Price"],
+                    mode="lines+markers",
+                    line=dict(color="#333",width=2),
+                    marker=dict(size=14, color=pts["Color"],
+                                line=dict(color="white",width=2)),
+                    text=[f"${round(p,2)}" for p in pts["Price"]],
+                    textposition="top center",
+                    textfont=dict(color="white")
+                ))
+                fig8.add_hline(y=price, line_dash="dash",
+                    line_color="#FFA500",
+                    annotation_text=f"  Current ${round(price,2)}",
+                    annotation_font_color="#FFA500")
+                fig8.update_layout(height=350,
+                    paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
+                    font_color="white", yaxis_title="Price ($)",
+                    showlegend=False)
+                fig8.update_xaxes(gridcolor="#1e1e1e")
+                fig8.update_yaxes(gridcolor="#1e1e1e")
+                st.plotly_chart(fig8, use_container_width=True)
+        else:
+            st.info("Analyst targets not available for this ticker.")
     except Exception as e:
-        st.warning(f"Quarterly earnings: {e}")
+        st.info("Analyst targets not available for this ticker.")
