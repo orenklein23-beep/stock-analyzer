@@ -5,4 +5,4 @@ plotly
 fpdf2
 requests
 beautifulsoup4
-kaleido
+kaleido==0.2.1
