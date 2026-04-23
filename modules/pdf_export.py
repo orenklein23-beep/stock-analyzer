@@ -51,17 +51,16 @@ def clean(text):
     chars = {
         "\u2014":"-","\u2013":"-","\u2018":"'","\u2019":"'",
         "\u201c":'"',"\u201d":'"',"\u2026":"...","\u2022":"*",
-        "\u00a0":" ","\u25b2":"^","\u25bc":"v",
+        "\u00a0":" ","\u25b2":"^","\u25bc":"v","\u00b7":"*",
     }
     for k,v in chars.items():
         text = text.replace(k,v)
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 def save_chart(fig):
-    """Save plotly fig to temp png, return path"""
     try:
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        fig.write_image(tmp.name, width=900, height=420, scale=2)
+        fig.write_image(tmp.name, width=900, height=400, scale=2)
         tmp.close()
         return tmp.name
     except:
@@ -82,10 +81,10 @@ class PDF(FPDF):
         self.set_xy(15, 4)
         self.cell(120, 10, clean(f"Stock Analyzer | {self.ticker} Report"), ln=False)
         self.set_font("Helvetica", "", 9)
-        self.set_xy(135, 4)
-        self.cell(60, 10, datetime.now().strftime("%b %d, %Y"), align="R")
+        self.set_xy(140, 4)
+        self.cell(55, 10, datetime.now().strftime("%b %d, %Y"), align="R", ln=True)
         self.set_text_color(0, 0, 0)
-        self.ln(20)
+        self.set_xy(15, 22)
 
     def footer(self):
         self.set_y(-12)
@@ -93,35 +92,33 @@ class PDF(FPDF):
         self.set_text_color(150, 150, 150)
         self.cell(0, 8,
             f"Page {self.page_no()} | Stock Analyzer | For informational purposes only",
-            align="C")
+            align="C", ln=True)
         self.set_text_color(0, 0, 0)
 
     def section_title(self, title):
+        self.set_x(15)
         self.set_fill_color(26, 26, 46)
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(255, 255, 255)
-        self.cell(0, 7, clean(f"  {title}"), ln=True, fill=True)
+        self.cell(180, 7, clean(f"  {title}"), ln=True, fill=True)
         self.set_text_color(0, 0, 0)
         self.ln(2)
 
-    def metric_table(self, items):
-        """Simple label | value rows — guaranteed to fit"""
-        lw = 80
-        vw = 95
-        for label, value in items:
-            self.set_x(15)
-            self.set_font("Helvetica", "", 8)
-            self.set_text_color(80, 80, 100)
-            self.cell(lw, 6, clean(str(label)), ln=False)
-            self.set_font("Helvetica", "B", 9)
-            self.set_text_color(20, 20, 40)
-            self.cell(vw, 6, clean(str(value)), ln=True)
+    def row(self, label, value):
+        """Single metric row — label on left, value on right"""
+        self.set_x(15)
+        self.set_font("Helvetica", "", 8)
+        self.set_text_color(80, 80, 100)
+        self.cell(85, 6, clean(str(label)), ln=False)
+        self.set_font("Helvetica", "B", 9)
+        self.set_text_color(20, 20, 40)
+        self.cell(95, 6, clean(str(value)), ln=True)
         self.set_text_color(0, 0, 0)
-        self.ln(3)
 
-    def add_chart(self, path, h=72):
+    def add_chart(self, path, h=70):
         if path and os.path.exists(path):
             try:
+                self.set_x(15)
                 self.image(path, x=15, w=180, h=h)
                 self.ln(4)
             except:
@@ -182,21 +179,22 @@ def show(ticker):
                 debt    = safe(bs,  "Total Debt")
                 cash    = safe(bs,  "Cash And Cash Equivalents") or \
                           safe(bs,  "Cash Cash Equivalents And Short Term Investments")
-                equity  = safe(bs,  "Stockholders Equity") or safe(bs, "Common Stock Equity")
+                equity  = safe(bs,  "Stockholders Equity") or \
+                          safe(bs,  "Common Stock Equity")
                 assets  = safe(bs,  "Total Assets")
                 op_cf   = safe(cf,  "Operating Cash Flow")
                 fcf     = safe(cf,  "Free Cash Flow")
 
                 chg     = round(price - prev, 2)
-                chgp    = round((chg/prev)*100, 2) if prev else 0
-                net_debt= (debt-cash)               if debt and cash else None
-                gross_m = round(gross_p/rev*100, 1) if gross_p and rev else None
-                net_m   = round(net_inc/rev*100, 1) if net_inc and rev else None
-                eps     = net_inc/shares             if net_inc and shares else None
-                pe      = price/eps                  if eps and eps > 0 else None
-                pb      = mcap/equity                if equity and equity > 0 else None
-                roe     = net_inc/equity*100         if net_inc and equity and equity > 0 else None
-                de      = debt/equity                if debt and equity and equity > 0 else None
+                chgp    = round((chg / prev) * 100, 2) if prev else 0
+                net_debt= (debt - cash)              if debt and cash else None
+                gross_m = round(gross_p/rev*100, 1)  if gross_p and rev else None
+                net_m   = round(net_inc/rev*100, 1)  if net_inc and rev else None
+                eps     = net_inc / shares            if net_inc and shares else None
+                pe      = price / eps                 if eps and eps > 0 else None
+                pb      = mcap / equity               if equity and equity > 0 else None
+                roe     = net_inc/equity*100          if net_inc and equity and equity > 0 else None
+                de      = debt / equity               if debt and equity and equity > 0 else None
 
                 # ── SENTIMENT ─────────────────────────────────
                 articles = []
@@ -218,12 +216,11 @@ def show(ticker):
                 sent_label = "Bullish" if avg_s>0.1 else "Bearish" if avg_s<-0.1 else "Neutral"
 
                 # ── PRE-RENDER CHARTS ─────────────────────────
-                chart_rev  = None
-                chart_eps  = None
-                chart_pie  = None
+                chart_rev = None
+                chart_eps = None
+                chart_pie = None
 
                 if inc_charts:
-                    # Revenue chart
                     try:
                         if not fin.empty:
                             f2 = fin.copy()
@@ -239,7 +236,7 @@ def show(ticker):
                                         x=f2.index, y=f2[cn],
                                         name=cn, marker_color=col))
                             fig_r.update_layout(
-                                barmode="group", height=420,
+                                barmode="group", height=400,
                                 paper_bgcolor="white",
                                 plot_bgcolor="#f8f8f8",
                                 title="Revenue, Gross Profit & Net Income",
@@ -248,7 +245,6 @@ def show(ticker):
                     except:
                         pass
 
-                    # Sentiment pie
                     try:
                         if articles:
                             fig_p = go.Figure(go.Pie(
@@ -258,10 +254,51 @@ def show(ticker):
                                 marker_colors=["#26a69a","#888","#ef5350"]
                             ))
                             fig_p.update_layout(
-                                height=420,
+                                height=400,
                                 paper_bgcolor="white",
                                 title="News Sentiment Breakdown")
                             chart_pie = save_chart(fig_p)
+                    except:
+                        pass
+
+                    try:
+                        if earn_dates is not None and not earn_dates.empty:
+                            ed_c = earn_dates.copy().dropna(
+                                subset=["EPS Estimate","Reported EPS"])
+                            ed_c = ed_c.sort_index()
+                            if ed_c.index.tzinfo:
+                                ed_c.index = ed_c.index.tz_localize(None)
+                            ed_c["Surp"] = (
+                                (ed_c["Reported EPS"] - ed_c["EPS Estimate"]) /
+                                ed_c["EPS Estimate"].abs() * 100
+                            ).round(1)
+                            ed_c.index = ed_c.index.astype(str).str[:10]
+                            bc = ["#26a69a" if b else "#ef5350"
+                                  for b in (ed_c["Reported EPS"] >= ed_c["EPS Estimate"])]
+                            fig_e = make_subplots(rows=2, cols=1,
+                                shared_xaxes=True,
+                                row_heights=[0.6, 0.4],
+                                vertical_spacing=0.1)
+                            fig_e.add_trace(go.Bar(
+                                x=ed_c.index, y=ed_c["EPS Estimate"],
+                                name="Estimate", marker_color="#888", opacity=0.6),
+                                row=1, col=1)
+                            fig_e.add_trace(go.Scatter(
+                                x=ed_c.index, y=ed_c["Reported EPS"],
+                                name="Actual", mode="lines+markers",
+                                line=dict(color="#FFA500",width=2),
+                                marker=dict(size=7, color=bc)),
+                                row=1, col=1)
+                            fig_e.add_trace(go.Bar(
+                                x=ed_c.index, y=ed_c["Surp"],
+                                name="Surprise %", marker_color=bc),
+                                row=2, col=1)
+                            fig_e.update_layout(
+                                height=480, paper_bgcolor="white",
+                                plot_bgcolor="#f8f8f8",
+                                title="EPS Actual vs Estimate",
+                                legend=dict(orientation="h"))
+                            chart_eps = save_chart(fig_e)
                     except:
                         pass
 
@@ -269,32 +306,35 @@ def show(ticker):
                 pdf = PDF(ticker)
                 pdf.add_page()
 
-                # Title block
+                # Title
+                pdf.set_x(15)
                 pdf.set_font("Helvetica","B",18)
                 pdf.set_text_color(26,26,46)
-                pdf.cell(0,10, clean(f"{ticker} Analyst Report"), ln=True)
+                pdf.cell(180,10, clean(f"{ticker} Analyst Report"), ln=True)
+                pdf.set_x(15)
                 pdf.set_font("Helvetica","",9)
                 pdf.set_text_color(80,80,80)
-                pdf.cell(0,5, clean(f"Prepared by: {analyst_name}"), ln=True)
-                pdf.cell(0,5, clean(f"Date: {datetime.now().strftime('%B %d, %Y')}"), ln=True)
+                pdf.cell(180,5, clean(f"Prepared by: {analyst_name}"), ln=True)
+                pdf.set_x(15)
+                pdf.cell(180,5,
+                    clean(f"Date: {datetime.now().strftime('%B %d, %Y')}"), ln=True)
                 pdf.ln(3)
 
-                # Price line
+                # Price
                 direction = "+" if chg >= 0 else ""
-                pdf.set_font("Helvetica","B",12)
+                pdf.set_x(15)
+                pdf.set_font("Helvetica","B",11)
                 pdf.set_text_color(26,26,46)
-                pdf.cell(0,7, clean(
-                    f"Price: ${round(price,2)}  |  "
-                    f"{direction}{chg} ({chgp}%) today  |  "
-                    f"Mkt Cap: {fmt(mcap)}"
-                ), ln=True)
+                pdf.cell(180,7,
+                    clean(f"Price: ${round(price,2)}   Change: {direction}{chg} ({chgp}%)   Cap: {fmt(mcap)}"),
+                    ln=True)
                 pdf.set_text_color(0,0,0)
                 pdf.ln(4)
 
                 # ── FUNDAMENTALS ──────────────────────────────
                 if inc_fund:
                     pdf.section_title("FUNDAMENTALS")
-                    pdf.metric_table([
+                    metrics = [
                         ("Market Cap",       fmt(mcap)),
                         ("Revenue (TTM)",    fmt(rev)),
                         ("Gross Profit",     fmt(gross_p)),
@@ -316,7 +356,10 @@ def show(ticker):
                         ("Equity",           fmt(equity)),
                         ("52-Week High",     f"${round(w52h,2)}" if w52h else "N/A"),
                         ("52-Week Low",      f"${round(w52l,2)}" if w52l else "N/A"),
-                    ])
+                    ]
+                    for label, value in metrics:
+                        pdf.row(label, value)
+                    pdf.ln(3)
                     if chart_rev:
                         pdf.add_chart(chart_rev)
 
@@ -339,64 +382,75 @@ def show(ticker):
                             misses = len(ed) - beats
                             avg_su = round(ed["Surp"].mean(), 1)
 
-                            pdf.metric_table([
+                            for label, value in [
                                 ("Quarters Tracked", str(len(ed))),
                                 ("EPS Beats",        str(beats)),
                                 ("EPS Misses",       str(misses)),
                                 ("Avg EPS Surprise", f"{avg_su}%"),
-                            ])
+                            ]:
+                                pdf.row(label, value)
+                            pdf.ln(3)
 
-                            # EPS table — 4 cols x 44mm = 176mm total
-                            cw = 44
+                            # Table header — 4 cols x 43mm = 172mm inside 180mm usable
+                            cw = 43
+                            headers = ["Date","Estimate","Reported","Surprise %"]
                             pdf.set_x(15)
                             pdf.set_font("Helvetica","B",8)
                             pdf.set_fill_color(240,240,245)
                             pdf.set_text_color(26,26,46)
-                            for h in ["Date","Estimate","Reported","Surprise %"]:
-                                pdf.cell(cw, 6, h, border=1, fill=True)
+                            for h in headers:
+                                pdf.cell(cw, 6, h, border=1, fill=True, ln=False)
                             pdf.ln()
 
+                            # Table rows
                             pdf.set_font("Helvetica","",8)
-                            for date, row in ed.tail(12).iterrows():
-                                beat = row["Reported EPS"] >= row["EPS Estimate"]
+                            for date, row_data in ed.tail(12).iterrows():
+                                beat = row_data["Reported EPS"] >= row_data["EPS Estimate"]
                                 pdf.set_x(15)
                                 pdf.set_text_color(0,0,0)
-                                pdf.cell(cw, 5, clean(str(date)[:10]), border=1)
                                 pdf.cell(cw, 5,
-                                    clean(str(round(row["EPS Estimate"],2))), border=1)
-                                if beat:
-                                    pdf.set_text_color(39,174,96)
-                                else:
+                                    clean(str(date)[:10]), border=1, ln=False)
+                                pdf.cell(cw, 5,
+                                    clean(str(round(row_data["EPS Estimate"],2))),
+                                    border=1, ln=False)
+                                pdf.set_text_color(39,174,96) if beat else \
                                     pdf.set_text_color(231,76,60)
                                 pdf.cell(cw, 5,
-                                    clean(str(round(row["Reported EPS"],2))), border=1)
+                                    clean(str(round(row_data["Reported EPS"],2))),
+                                    border=1, ln=False)
                                 pdf.cell(cw, 5,
-                                    clean(f"{row['Surp']:+.1f}%"), border=1)
-                                pdf.ln()
+                                    clean(f"{row_data['Surp']:+.1f}%"),
+                                    border=1, ln=True)
                             pdf.set_text_color(0,0,0)
                             pdf.ln(4)
 
-                            if inc_charts and chart_eps:
+                            if chart_eps:
                                 pdf.add_chart(chart_eps, h=80)
 
-                        except Exception as e:
+                        except Exception as earn_err:
+                            pdf.set_x(15)
                             pdf.set_font("Helvetica","I",9)
-                            pdf.cell(0,6, clean(f"Earnings data error: {e}"), ln=True)
+                            pdf.cell(180,6,
+                                clean(f"Earnings error: {str(earn_err)[:80]}"), ln=True)
                     else:
+                        pdf.set_x(15)
                         pdf.set_font("Helvetica","I",9)
-                        pdf.cell(0,6,"No earnings estimate data available.",ln=True)
+                        pdf.cell(180,6,"No earnings estimate data available.",ln=True)
 
                 # ── SENTIMENT ─────────────────────────────────
                 if inc_sent and articles:
                     pdf.add_page()
                     pdf.section_title("NEWS SENTIMENT")
-                    pdf.metric_table([
+
+                    for label, value in [
                         ("Overall Sentiment", sent_label),
                         ("Avg Score",         f"{avg_s:+.3f}"),
                         ("Positive Articles", str(pos_c)),
                         ("Negative Articles", str(neg_c)),
                         ("Total Articles",    str(len(articles))),
-                    ])
+                    ]:
+                        pdf.row(label, value)
+                    pdf.ln(3)
 
                     if avg_s > 0.3:
                         flag = "Extreme Optimism - very bullish. Good news may be priced in."
@@ -409,43 +463,49 @@ def show(ticker):
                     else:
                         flag = "Neutral - no strong directional bias in recent news."
 
+                    pdf.set_x(15)
                     pdf.set_font("Helvetica","B",9)
                     pdf.set_text_color(26,26,46)
-                    pdf.cell(0,5,"Behavioral Flag:",ln=True)
+                    pdf.cell(180,5,"Behavioral Flag:",ln=True)
+                    pdf.set_x(15)
                     pdf.set_font("Helvetica","",9)
                     pdf.set_text_color(60,60,60)
-                    pdf.multi_cell(0,5,clean(flag))
+                    pdf.multi_cell(180,5,clean(flag))
                     pdf.set_text_color(0,0,0)
                     pdf.ln(3)
 
                     if chart_pie:
                         pdf.add_chart(chart_pie, h=65)
 
+                    pdf.set_x(15)
                     pdf.set_font("Helvetica","B",9)
                     pdf.set_text_color(26,26,46)
-                    pdf.cell(0,5,"Recent Headlines:",ln=True)
+                    pdf.cell(180,5,"Recent Headlines:",ln=True)
                     pdf.set_text_color(0,0,0)
+
                     for a in articles[:10]:
                         tag = "+" if a["label"]=="Positive" else \
                               "-" if a["label"]=="Negative" else "o"
                         lc  = (39,174,96)   if a["label"]=="Positive" else \
                               (231,76,60)   if a["label"]=="Negative" else \
                               (100,100,100)
+                        pdf.set_x(15)
                         pdf.set_font("Helvetica","",8)
                         pdf.set_text_color(*lc)
                         pdf.cell(8,5,f"[{tag}]",ln=False)
                         pdf.set_text_color(40,40,40)
                         t = clean(a["title"])
-                        t = (t[:85]+"...") if len(t)>85 else t
-                        pdf.multi_cell(0,5,t)
+                        t = (t[:82]+"...") if len(t)>82 else t
+                        pdf.multi_cell(172,5,t)
                     pdf.set_text_color(0,0,0)
 
                 # ── DISCLAIMER ────────────────────────────────
                 pdf.add_page()
                 pdf.section_title("DISCLAIMER")
+                pdf.set_x(15)
                 pdf.set_font("Helvetica","",8)
                 pdf.set_text_color(100,100,100)
-                pdf.multi_cell(0,5,clean(
+                pdf.multi_cell(180,5,clean(
                     "This report is generated automatically by Stock Analyzer and is for "
                     "informational and educational purposes only. It does not constitute "
                     "financial advice or an offer to buy or sell any security. Data sourced "
@@ -470,4 +530,6 @@ def show(ticker):
                 )
 
             except Exception as e:
+                import traceback
                 st.error(f"Error generating PDF: {e}")
+                st.code(traceback.format_exc())
