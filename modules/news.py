@@ -5,19 +5,32 @@ import plotly.graph_objects as go
 def simple_sentiment(text):
     positive = ["beat","strong","growth","record","surge","gain","profit","up","rise",
                 "raised","upgrade","outperform","bullish","exceed","positive","boost",
-                "soar","rally","jump","expand","buy","opportunity","innovative","leading"]
+                "soar","rally","jump","expand","buy","opportunity","innovative","leading",
+                "higher","recovery","rebound","optimistic","confident","robust","solid"]
     negative = ["miss","weak","decline","fall","drop","loss","down","cut","lower","risk",
                 "downgrade","underperform","bearish","disappoint","negative","concern",
-                "slump","crash","sell","lawsuit","investigation","warning","slowdown"]
+                "slump","crash","sell","lawsuit","investigation","warning","slowdown",
+                "trouble","struggle","pressure","volatile","uncertain","fear","worry"]
+
     text_lower = text.lower()
+    words = text_lower.split()
+
     pos = sum(1 for w in positive if w in text_lower)
     neg = sum(1 for w in negative if w in text_lower)
     total = pos + neg
-    if total == 0: return 0, "Neutral"
-    score = (pos - neg) / total
-    if score > 0.2:  return round(score,3), "Positive"
-    if score < -0.2: return round(score,3), "Negative"
-    return round(score,3), "Neutral"
+
+    if total == 0:
+        return 0.0, "Neutral"
+
+    # Weighted score — require at least 2 matches for extreme scores
+    raw = (pos - neg) / total
+    # Dampen single-match extremes
+    weight = min(total, 5) / 5
+    score = round(raw * weight, 3)
+
+    if score > 0.15:  return score, "Positive"
+    if score < -0.15: return score, "Negative"
+    return score, "Neutral"
 
 def show(ticker):
     st.header(f"📰 {ticker} — News Sentiment")
@@ -78,21 +91,22 @@ def show(ticker):
     neu_count = sum(1 for a in articles if a["label"] == "Neutral")
     avg_score = round(sum(a["score"] for a in articles) / len(articles), 3)
     overall   = "🟢 Bullish" if avg_score > 0.1 else "🔴 Bearish" if avg_score < -0.1 else "🟡 Neutral"
+    overall_color = "#26a69a" if avg_score > 0.1 else "#ef5350" if avg_score < -0.1 else "#888"
 
     st.markdown(f"""
     <div style='background:linear-gradient(135deg,#1a1a2e,#16213e);
                 padding:24px 32px;border-radius:16px;margin-bottom:24px'>
         <div style='color:#888;font-size:12px;letter-spacing:3px'>OVERALL SENTIMENT</div>
-        <div style='color:#fff;font-size:40px;font-weight:800;margin:8px 0'>{overall}</div>
-        <div style='color:#aaa;font-size:15px'>Based on {len(articles)} recent articles</div>
+        <div style='color:{overall_color};font-size:40px;font-weight:800;margin:8px 0'>{overall}</div>
+        <div style='color:#aaa;font-size:15px'>Based on {len(articles)} recent articles &nbsp;|&nbsp; Avg score: {avg_score:+.3f}</div>
     </div>
     """, unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Avg Score",    avg_score)
-    c2.metric("🟢 Positive",  pos_count)
-    c3.metric("🟡 Neutral",   neu_count)
-    c4.metric("🔴 Negative",  neg_count)
+    c1.metric("Articles Analyzed", len(articles))
+    c2.metric("🟢 Positive", pos_count)
+    c3.metric("🟡 Neutral",  neu_count)
+    c4.metric("🔴 Negative", neg_count)
 
     st.divider()
 
@@ -104,25 +118,29 @@ def show(ticker):
         fig1 = go.Figure(go.Pie(
             labels=["Positive","Neutral","Negative"],
             values=[pos_count, neu_count, neg_count],
-            hole=0.5,
-            marker_colors=["#26a69a","#888","#ef5350"]
+            hole=0.55,
+            marker_colors=["#26a69a","#555","#ef5350"],
+            textfont=dict(color="white", size=14)
         ))
         fig1.update_layout(height=300,
-            paper_bgcolor="#0e1117", font_color="white")
+            paper_bgcolor="#0e1117", font_color="white",
+            legend=dict(font=dict(color="white")))
         st.plotly_chart(fig1, use_container_width=True)
 
     with col2:
         fig2 = go.Figure(go.Bar(
-            x=["Positive","Neutral","Negative"],
+            x=["🟢 Positive","🟡 Neutral","🔴 Negative"],
             y=[pos_count, neu_count, neg_count],
-            marker_color=["#26a69a","#888","#ef5350"],
+            marker_color=["#26a69a","#555","#ef5350"],
             text=[pos_count, neu_count, neg_count],
             textposition="outside",
-            textfont=dict(color="white")
+            textfont=dict(color="white", size=16),
+            width=0.5
         ))
         fig2.update_layout(height=300,
             paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-            font_color="white")
+            font_color="white", showlegend=False,
+            yaxis=dict(range=[0, max(pos_count, neu_count, neg_count) * 1.3]))
         fig2.update_xaxes(gridcolor="#1e1e1e")
         fig2.update_yaxes(gridcolor="#1e1e1e")
         st.plotly_chart(fig2, use_container_width=True)
@@ -131,27 +149,36 @@ def show(ticker):
 
     # ── SCORE PER ARTICLE ──────────────────────────────────────
     st.subheader("📈 Sentiment Score by Article")
-    scores = [a["score"] for a in articles]
-    labels = [a["title"][:45]+"..." if len(a["title"]) > 45 else a["title"] for a in articles]
-    colors = ["#26a69a" if s > 0.1 else "#ef5350" if s < -0.1 else "#888" for s in scores]
+
+    sorted_articles = sorted(articles, key=lambda x: x["score"])
+    scores = [a["score"] for a in sorted_articles]
+    labels = [a["title"][:50]+"..." if len(a["title"]) > 50 else a["title"] for a in sorted_articles]
+    colors = ["#26a69a" if s > 0.15 else "#ef5350" if s < -0.15 else "#777" for s in scores]
 
     fig3 = go.Figure(go.Bar(
-        x=scores, y=labels,
+        x=scores,
+        y=labels,
         orientation="h",
         marker_color=colors,
+        marker_line_width=0,
         text=[f"{s:+.2f}" for s in scores],
         textposition="outside",
-        textfont=dict(color="white")
+        textfont=dict(color="white", size=11),
+        width=0.6
     ))
-    fig3.add_vline(x=0, line_dash="dash", line_color="#888")
+    fig3.add_vline(x=0, line_dash="solid", line_color="#444", line_width=2)
+
+    max_abs = max(abs(min(scores)), abs(max(scores)), 0.5)
     fig3.update_layout(
-        height=max(400, len(articles)*34),
-        paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-        font_color="white", xaxis_title="Sentiment Score",
-        margin=dict(l=20, r=80)
+        height=max(380, len(articles)*36),
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#0e1117",
+        font_color="white",
+        xaxis_title="Sentiment Score",
+        xaxis=dict(range=[-(max_abs+0.15), max_abs+0.15], gridcolor="#1e1e1e"),
+        yaxis=dict(gridcolor="#1e1e1e"),
+        margin=dict(l=10, r=80, t=20, b=40)
     )
-    fig3.update_xaxes(gridcolor="#1e1e1e", range=[-1,1])
-    fig3.update_yaxes(gridcolor="#1e1e1e")
     st.plotly_chart(fig3, use_container_width=True)
 
     st.divider()
@@ -159,21 +186,21 @@ def show(ticker):
     # ── BEHAVIORAL FLAG ────────────────────────────────────────
     st.subheader("🧠 Behavioral Sentiment Flag")
     if avg_score > 0.3:
-        st.error("⚠️ **Extreme Optimism** — Very bullish sentiment. Good news may already be priced in. Classic buy-the-rumor, sell-the-news setup.")
+        st.error("⚠️ **Extreme Optimism Detected** — Sentiment is very bullish. Good news may already be priced in. Classic buy-the-rumor, sell-the-news risk.")
     elif avg_score > 0.1:
-        st.success("✅ **Moderately Bullish** — Positive sentiment with room to run. Watch for price confirmation.")
+        st.success("✅ **Moderately Bullish** — Positive sentiment with room to run. Watch for price action confirmation.")
     elif avg_score < -0.3:
-        st.success("💡 **Extreme Pessimism** — Very bearish sentiment. Contrarian opportunity may exist if fundamentals are intact.")
+        st.success("💡 **Extreme Pessimism Detected** — Sentiment is very bearish. Contrarian opportunity may exist if fundamentals are intact.")
     elif avg_score < -0.1:
-        st.warning("⚠️ **Moderately Bearish** — Negative sentiment building. Monitor for reversal catalyst.")
+        st.warning("⚠️ **Moderately Bearish** — Negative sentiment building. Monitor for deterioration or a reversal catalyst.")
     else:
-        st.info("🟡 **Neutral** — No strong directional bias in recent news.")
+        st.info("🟡 **Neutral Sentiment** — No strong directional bias in recent news. Market is in wait-and-see mode.")
 
     st.divider()
 
     # ── ARTICLE LIST ───────────────────────────────────────────
     st.subheader("📰 All Recent Articles")
-    filt = st.radio("Filter:", ["All","Positive","Neutral","Negative"], horizontal=True)
+    filt = st.radio("Filter by sentiment:", ["All","Positive","Neutral","Negative"], horizontal=True)
     filtered = articles if filt == "All" else [a for a in articles if a["label"] == filt]
 
     for a in filtered:
