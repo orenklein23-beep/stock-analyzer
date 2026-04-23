@@ -1,5 +1,7 @@
 import streamlit as st
 import yfinance as yf
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from fpdf import FPDF
 import pandas as pd
 import tempfile
@@ -55,6 +57,16 @@ def clean(text):
         text = text.replace(k,v)
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
+def save_chart(fig):
+    """Save plotly fig to temp png, return path"""
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        fig.write_image(tmp.name, width=900, height=420, scale=2)
+        tmp.close()
+        return tmp.name
+    except:
+        return None
+
 class PDF(FPDF):
     def __init__(self, ticker):
         super().__init__()
@@ -79,7 +91,9 @@ class PDF(FPDF):
         self.set_y(-12)
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 8, f"Page {self.page_no()} | Stock Analyzer | For informational purposes only", align="C")
+        self.cell(0, 8,
+            f"Page {self.page_no()} | Stock Analyzer | For informational purposes only",
+            align="C")
         self.set_text_color(0, 0, 0)
 
     def section_title(self, title):
@@ -91,14 +105,11 @@ class PDF(FPDF):
         self.ln(2)
 
     def metric_table(self, items):
-        """Simple 2-column label: value table — bulletproof layout"""
-        self.set_font("Helvetica", "", 9)
-        usable = 180  # total usable width
-        lw = 70       # label column width
-        vw = 110      # value column width
+        """Simple label | value rows — guaranteed to fit"""
+        lw = 80
+        vw = 95
         for label, value in items:
-            y = self.get_y()
-            self.set_xy(15, y)
+            self.set_x(15)
             self.set_font("Helvetica", "", 8)
             self.set_text_color(80, 80, 100)
             self.cell(lw, 6, clean(str(label)), ln=False)
@@ -106,7 +117,20 @@ class PDF(FPDF):
             self.set_text_color(20, 20, 40)
             self.cell(vw, 6, clean(str(value)), ln=True)
         self.set_text_color(0, 0, 0)
-        self.ln(2)
+        self.ln(3)
+
+    def add_chart(self, path, h=72):
+        if path and os.path.exists(path):
+            try:
+                self.image(path, x=15, w=180, h=h)
+                self.ln(4)
+            except:
+                pass
+            try:
+                os.unlink(path)
+            except:
+                pass
+
 
 def show(ticker):
     st.header(f"PDF Export | {ticker}")
@@ -116,10 +140,11 @@ def show(ticker):
 
     col1, col2 = st.columns(2)
     with col1:
-        inc_fund = st.checkbox("Include Fundamentals",      value=True)
-        inc_earn = st.checkbox("Include Earnings Analysis", value=True)
+        inc_fund   = st.checkbox("Include Fundamentals",      value=True)
+        inc_earn   = st.checkbox("Include Earnings Analysis", value=True)
     with col2:
-        inc_sent = st.checkbox("Include News Sentiment",    value=True)
+        inc_sent   = st.checkbox("Include News Sentiment",    value=True)
+        inc_charts = st.checkbox("Include Charts",            value=True)
 
     if st.button("Generate PDF Report", type="primary"):
         with st.spinner("Building report..."):
@@ -142,7 +167,8 @@ def show(ticker):
                     h52  = stock.history(period="1y")
                     w52h = float(h52["High"].max()) if not h52.empty else 0
                     w52l = float(h52["Low"].min())  if not h52.empty else 0
-                except: w52h, w52l = 0, 0
+                except:
+                    w52h, w52l = 0, 0
                 try: news_raw = stock.news or []
                 except: news_raw = []
                 try: earn_dates = stock.earnings_dates
@@ -154,7 +180,8 @@ def show(ticker):
                 net_inc = safe(fin, "Net Income")
                 ebitda  = safe(fin, "EBITDA") or safe(fin, "Normalized EBITDA")
                 debt    = safe(bs,  "Total Debt")
-                cash    = safe(bs,  "Cash And Cash Equivalents") or safe(bs, "Cash Cash Equivalents And Short Term Investments")
+                cash    = safe(bs,  "Cash And Cash Equivalents") or \
+                          safe(bs,  "Cash Cash Equivalents And Short Term Investments")
                 equity  = safe(bs,  "Stockholders Equity") or safe(bs, "Common Stock Equity")
                 assets  = safe(bs,  "Total Assets")
                 op_cf   = safe(cf,  "Operating Cash Flow")
@@ -162,14 +189,14 @@ def show(ticker):
 
                 chg     = round(price - prev, 2)
                 chgp    = round((chg/prev)*100, 2) if prev else 0
-                net_debt= (debt-cash)              if debt and cash else None
-                gross_m = round(gross_p/rev*100,1) if gross_p and rev else None
-                net_m   = round(net_inc/rev*100,1) if net_inc and rev else None
-                eps     = net_inc/shares            if net_inc and shares else None
-                pe      = price/eps                 if eps and eps > 0 else None
-                pb      = mcap/equity               if equity and equity > 0 else None
-                roe     = net_inc/equity*100        if net_inc and equity and equity > 0 else None
-                de      = debt/equity               if debt and equity and equity > 0 else None
+                net_debt= (debt-cash)               if debt and cash else None
+                gross_m = round(gross_p/rev*100, 1) if gross_p and rev else None
+                net_m   = round(net_inc/rev*100, 1) if net_inc and rev else None
+                eps     = net_inc/shares             if net_inc and shares else None
+                pe      = price/eps                  if eps and eps > 0 else None
+                pb      = mcap/equity                if equity and equity > 0 else None
+                roe     = net_inc/equity*100         if net_inc and equity and equity > 0 else None
+                de      = debt/equity                if debt and equity and equity > 0 else None
 
                 # ── SENTIMENT ─────────────────────────────────
                 articles = []
@@ -181,18 +208,68 @@ def show(ticker):
                         if not title: continue
                         score, label = simple_sentiment(title + " " + summary)
                         articles.append({"title":title,"score":score,"label":label})
-                    except: continue
+                    except:
+                        continue
 
                 pos_c = sum(1 for a in articles if a["label"]=="Positive")
                 neg_c = sum(1 for a in articles if a["label"]=="Negative")
+                neu_c = sum(1 for a in articles if a["label"]=="Neutral")
                 avg_s = round(sum(a["score"] for a in articles)/len(articles),3) if articles else 0
                 sent_label = "Bullish" if avg_s>0.1 else "Bearish" if avg_s<-0.1 else "Neutral"
+
+                # ── PRE-RENDER CHARTS ─────────────────────────
+                chart_rev  = None
+                chart_eps  = None
+                chart_pie  = None
+
+                if inc_charts:
+                    # Revenue chart
+                    try:
+                        if not fin.empty:
+                            f2 = fin.copy()
+                            f2.index = f2.index.astype(str).str[:10]
+                            fig_r = go.Figure()
+                            for cn, col in [
+                                ("Total Revenue","#4A90D9"),
+                                ("Gross Profit","#9B59B6"),
+                                ("Net Income","#27AE60")
+                            ]:
+                                if cn in f2.columns:
+                                    fig_r.add_trace(go.Bar(
+                                        x=f2.index, y=f2[cn],
+                                        name=cn, marker_color=col))
+                            fig_r.update_layout(
+                                barmode="group", height=420,
+                                paper_bgcolor="white",
+                                plot_bgcolor="#f8f8f8",
+                                title="Revenue, Gross Profit & Net Income",
+                                legend=dict(orientation="h"))
+                            chart_rev = save_chart(fig_r)
+                    except:
+                        pass
+
+                    # Sentiment pie
+                    try:
+                        if articles:
+                            fig_p = go.Figure(go.Pie(
+                                labels=["Positive","Neutral","Negative"],
+                                values=[pos_c, neu_c, neg_c],
+                                hole=0.5,
+                                marker_colors=["#26a69a","#888","#ef5350"]
+                            ))
+                            fig_p.update_layout(
+                                height=420,
+                                paper_bgcolor="white",
+                                title="News Sentiment Breakdown")
+                            chart_pie = save_chart(fig_p)
+                    except:
+                        pass
 
                 # ── BUILD PDF ─────────────────────────────────
                 pdf = PDF(ticker)
                 pdf.add_page()
 
-                # Title
+                # Title block
                 pdf.set_font("Helvetica","B",18)
                 pdf.set_text_color(26,26,46)
                 pdf.cell(0,10, clean(f"{ticker} Analyst Report"), ln=True)
@@ -200,13 +277,17 @@ def show(ticker):
                 pdf.set_text_color(80,80,80)
                 pdf.cell(0,5, clean(f"Prepared by: {analyst_name}"), ln=True)
                 pdf.cell(0,5, clean(f"Date: {datetime.now().strftime('%B %d, %Y')}"), ln=True)
-                pdf.ln(4)
+                pdf.ln(3)
 
-                # Price row
+                # Price line
                 direction = "+" if chg >= 0 else ""
-                pdf.set_font("Helvetica","B",13)
+                pdf.set_font("Helvetica","B",12)
                 pdf.set_text_color(26,26,46)
-                pdf.cell(0,8, clean(f"Current Price: ${round(price,2)}  |  {direction}{chg} ({chgp}%) today"), ln=True)
+                pdf.cell(0,7, clean(
+                    f"Price: ${round(price,2)}  |  "
+                    f"{direction}{chg} ({chgp}%) today  |  "
+                    f"Mkt Cap: {fmt(mcap)}"
+                ), ln=True)
                 pdf.set_text_color(0,0,0)
                 pdf.ln(4)
 
@@ -236,20 +317,27 @@ def show(ticker):
                         ("52-Week High",     f"${round(w52h,2)}" if w52h else "N/A"),
                         ("52-Week Low",      f"${round(w52l,2)}" if w52l else "N/A"),
                     ])
+                    if chart_rev:
+                        pdf.add_chart(chart_rev)
 
                 # ── EARNINGS ──────────────────────────────────
                 if inc_earn:
+                    pdf.add_page()
                     pdf.section_title("EARNINGS ANALYSIS")
                     if earn_dates is not None and not earn_dates.empty:
                         try:
-                            ed = earn_dates.copy().dropna(subset=["EPS Estimate","Reported EPS"])
+                            ed = earn_dates.copy().dropna(
+                                subset=["EPS Estimate","Reported EPS"])
                             ed = ed.sort_index()
-                            ed.index = ed.index.tz_localize(None) if ed.index.tzinfo else ed.index
-                            ed["Surp"] = ((ed["Reported EPS"]-ed["EPS Estimate"])/
-                                          ed["EPS Estimate"].abs()*100).round(1)
-                            beats  = int((ed["Reported EPS"]>=ed["EPS Estimate"]).sum())
+                            if ed.index.tzinfo:
+                                ed.index = ed.index.tz_localize(None)
+                            ed["Surp"] = (
+                                (ed["Reported EPS"] - ed["EPS Estimate"]) /
+                                ed["EPS Estimate"].abs() * 100
+                            ).round(1)
+                            beats  = int((ed["Reported EPS"] >= ed["EPS Estimate"]).sum())
                             misses = len(ed) - beats
-                            avg_su = round(ed["Surp"].mean(),1)
+                            avg_su = round(ed["Surp"].mean(), 1)
 
                             pdf.metric_table([
                                 ("Quarters Tracked", str(len(ed))),
@@ -257,39 +345,50 @@ def show(ticker):
                                 ("EPS Misses",       str(misses)),
                                 ("Avg EPS Surprise", f"{avg_su}%"),
                             ])
-                            pdf.ln(2)
 
-                            # Earnings table
+                            # EPS table — 4 cols x 44mm = 176mm total
+                            cw = 44
+                            pdf.set_x(15)
                             pdf.set_font("Helvetica","B",8)
                             pdf.set_fill_color(240,240,245)
                             pdf.set_text_color(26,26,46)
-                            pdf.cell(45,6,"Date",border=1,fill=True)
-                            pdf.cell(45,6,"EPS Estimate",border=1,fill=True)
-                            pdf.cell(45,6,"Reported EPS",border=1,fill=True)
-                            pdf.cell(45,6,"Surprise %",border=1,fill=True,ln=True)
+                            for h in ["Date","Estimate","Reported","Surprise %"]:
+                                pdf.cell(cw, 6, h, border=1, fill=True)
+                            pdf.ln()
 
                             pdf.set_font("Helvetica","",8)
                             for date, row in ed.tail(12).iterrows():
                                 beat = row["Reported EPS"] >= row["EPS Estimate"]
+                                pdf.set_x(15)
                                 pdf.set_text_color(0,0,0)
-                                pdf.cell(45,5,clean(str(date)[:10]),border=1)
-                                pdf.cell(45,5,clean(str(round(row["EPS Estimate"],2))),border=1)
+                                pdf.cell(cw, 5, clean(str(date)[:10]), border=1)
+                                pdf.cell(cw, 5,
+                                    clean(str(round(row["EPS Estimate"],2))), border=1)
                                 if beat:
                                     pdf.set_text_color(39,174,96)
                                 else:
                                     pdf.set_text_color(231,76,60)
-                                pdf.cell(45,5,clean(str(round(row["Reported EPS"],2))),border=1)
-                                surp = row["Surp"]
-                                pdf.cell(45,5,clean(f"{surp:+.1f}%"),border=1,ln=True)
+                                pdf.cell(cw, 5,
+                                    clean(str(round(row["Reported EPS"],2))), border=1)
+                                pdf.cell(cw, 5,
+                                    clean(f"{row['Surp']:+.1f}%"), border=1)
+                                pdf.ln()
                             pdf.set_text_color(0,0,0)
                             pdf.ln(4)
-                        except: pass
+
+                            if inc_charts and chart_eps:
+                                pdf.add_chart(chart_eps, h=80)
+
+                        except Exception as e:
+                            pdf.set_font("Helvetica","I",9)
+                            pdf.cell(0,6, clean(f"Earnings data error: {e}"), ln=True)
                     else:
                         pdf.set_font("Helvetica","I",9)
-                        pdf.cell(0,6,"No earnings data available.",ln=True)
+                        pdf.cell(0,6,"No earnings estimate data available.",ln=True)
 
                 # ── SENTIMENT ─────────────────────────────────
                 if inc_sent and articles:
+                    pdf.add_page()
                     pdf.section_title("NEWS SENTIMENT")
                     pdf.metric_table([
                         ("Overall Sentiment", sent_label),
@@ -300,11 +399,11 @@ def show(ticker):
                     ])
 
                     if avg_s > 0.3:
-                        flag = "Extreme Optimism - very bullish sentiment. Good news may already be priced in."
+                        flag = "Extreme Optimism - very bullish. Good news may be priced in."
                     elif avg_s > 0.1:
                         flag = "Moderately Bullish - positive sentiment with room to run."
                     elif avg_s < -0.3:
-                        flag = "Extreme Pessimism - contrarian opportunity may exist if fundamentals are intact."
+                        flag = "Extreme Pessimism - contrarian opportunity may exist."
                     elif avg_s < -0.1:
                         flag = "Moderately Bearish - negative sentiment building."
                     else:
@@ -318,6 +417,9 @@ def show(ticker):
                     pdf.multi_cell(0,5,clean(flag))
                     pdf.set_text_color(0,0,0)
                     pdf.ln(3)
+
+                    if chart_pie:
+                        pdf.add_chart(chart_pie, h=65)
 
                     pdf.set_font("Helvetica","B",9)
                     pdf.set_text_color(26,26,46)
