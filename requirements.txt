@@ -5,5 +5,4 @@ plotly
 fpdf2
 requests
 beautifulsoup4
-alpha-vantage
-pandas-datareader
+kaleido
