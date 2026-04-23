@@ -31,5 +31,8 @@ if ticker:
     elif module == "📈 Earnings Analysis":
         from modules import earnings
         earnings.show(ticker)
+    elif module == "📰 News Sentiment":
+        from modules import news
+        news.show(ticker)
     else:
         st.info(f"{module} coming soon...")
